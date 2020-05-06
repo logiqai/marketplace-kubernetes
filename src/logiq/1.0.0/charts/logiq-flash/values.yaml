@@ -1,0 +1,123 @@
+# Default values for logiq-flash.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 3
+
+image:
+  repository: logiqai/flash
+  tag: 1.2.0
+  pullPolicy: Always
+
+environment:
+  flags_extra: "-event_workers 25 -workers 100 -timeout_inital_logs 1h"
+
+secrets_name:
+pullSecretName: 
+
+discoveryService:
+  name: flash-discovery
+
+service:
+  type: ClusterIP
+
+grpc:
+  port: 8081
+  name: grpc
+
+liveness_port:
+  port: 8080
+  name: liveness-port
+
+webcli:
+  port: 9998
+  name: webcli
+
+api:
+  port: 9999
+  name: api
+
+syslogtls:
+  port: 7514
+  name: syslogtls
+
+syslog:
+  port: 514
+  name: syslog
+  containerPort: 514
+
+relp:
+  port: 20514
+  name: relp
+
+relptls:
+  port: 2514
+  name: relptls
+
+raftHttp:
+  port: 4001
+  name: raft-http
+
+raft:
+  port: 4002
+  name: raft
+
+## Persist data to a persistent volume
+persistence:
+  enabled: true
+  ## database data Persistent Volume Storage Class
+  ## If defined, storageClassName: <storageClass>
+  ## If set to "-", storageClassName: "", which disables dynamic provisioning
+  ## If undefined (the default) or set to null, no storageClassName spec is
+  ##   set, choosing the default provisioner.  (gp2 on AWS, standard on
+  ##   GKE, AWS & OpenStack)
+  ##
+  ## gp2 - aws
+  #storageClassName: gp2
+  ## do-block-storage - digitalocean
+  #storageClassName: do-block-storage
+  ## standard - minikube
+  storageClassName: standard
+  accessMode: ReadWriteOnce
+  pod_storage: "10Gi"
+
+
+configurationFiles: true
+configMapName:
+podPerNode: false
+
+resources:
+  requests:
+    memory: "3Gi"
+    cpu: "1000m"
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+global:
+  environment:
+    redis_opts: true
+    redis_host: "redis-master"
+    redis_port: "6379"
+    postgres_host: "postgres"
+    postgres_port: "5432"
+    postgres_user: "postgres"
+    postgres_password: "postgres"
+    postgres_db: "postgres"
+    s3_url: "http://s3-gateway:9000"
+    s3_access: "logiq_access"
+    s3_secret: "logiq_secret"
+    s3_bucket: "logiq"

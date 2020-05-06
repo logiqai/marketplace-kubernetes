@@ -1,0 +1,2296 @@
+---
+# Source: logiq/charts/kubernetes-ingress/templates/controller-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logiq-kubernetes-ingress
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+---
+# Source: logiq/charts/kubernetes-ingress/templates/default-backend-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: logiq-kubernetes-ingress-default-backend
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+---
+# Source: logiq/charts/s3-gateway/templates/post-install-prometheus-metrics-serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: s3-gateway-update-prometheus-secret
+  labels:
+    app: s3-gateway-update-prometheus-secret
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+---
+# Source: logiq/charts/s3-gateway/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "s3-gateway"
+  namespace: "logiq"
+---
+# Source: logiq/charts/postgres/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    chart: postgres-8.7.3
+    release: "logiq"
+    heritage: "Helm"
+type: Opaque
+data:
+  postgresql-password: "cG9zdGdyZXM="
+---
+# Source: logiq/charts/s3-gateway/templates/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s3-gateway
+  labels:
+    app: s3-gateway
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+type: Opaque
+data:
+  accesskey: "bG9naXFfYWNjZXNz"
+  secretkey: "bG9naXFfc2VjcmV0"
+---
+# Source: logiq/charts/kubernetes-ingress/templates/controller-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logiq-kubernetes-ingress
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+data:
+---
+# Source: logiq/charts/logiq-flash/templates/configMap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logiq-config
+data:
+  config.yaml: |
+    
+        options:
+    
+            ca: "/flash/certs/ca.crt"
+    
+            cert: "/flash/certs/syslog.crt"
+    
+            key: "/flash/certs/syslog.key"
+    
+            host: 0.0.0.0
+    
+        partitions:
+    
+          -
+    
+            name: p_scheme
+    
+            fields:
+    
+              - namespace
+    
+              - appname
+    
+              - year
+    
+              - month
+    
+              - day
+    
+        credentials:
+    
+          -
+    
+            name: logiq
+    
+            s3:
+    
+              secret_key: logiq_secret
+    
+              access_key: logiq_access
+    
+        destinations:
+    
+          -
+    
+            name: default_log_store
+    
+            partition: p_scheme
+    
+            s3:
+    
+              bucket: logiq
+    
+              endpoint: http://s3-gateway:9000
+    
+              region: us-east-1
+    
+              credential: logiq
+    
+        rules:
+    
+          -
+    
+            destination: default_log_store
+---
+# Source: logiq/charts/redis/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    heritage: Helm
+    release: logiq
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+# Source: logiq/charts/redis/templates/health-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-health
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    heritage: Helm
+    release: logiq
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+     response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+# Source: logiq/charts/s3-gateway/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-gateway
+  labels:
+    app: s3-gateway
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+data:
+  initialize: |-
+    #!/bin/sh
+    set -e ; # Have script exit in the event of a failed command.
+    MC_CONFIG_DIR="/etc/minio/mc/"
+    MC="/usr/bin/mc --config-dir ${MC_CONFIG_DIR}"
+    
+    # connectToMinio
+    # Use a check-sleep-check loop to wait for Minio service to be available
+    connectToMinio() {
+      SCHEME=$1
+      ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
+      set -e ; # fail if we can't read the keys.
+      ACCESS=$(cat /config/accesskey) ; SECRET=$(cat /config/secretkey) ;
+      set +e ; # The connections to minio are allowed to fail.
+      echo "Connecting to Minio server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
+      MC_COMMAND="${MC} config host add myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
+      $MC_COMMAND ;
+      STATUS=$? ;
+      until [ $STATUS = 0 ]
+      do
+        ATTEMPTS=`expr $ATTEMPTS + 1` ;
+        echo \"Failed attempts: $ATTEMPTS\" ;
+        if [ $ATTEMPTS -gt $LIMIT ]; then
+          exit 1 ;
+        fi ;
+        sleep 2 ; # 1 second intervals between attempts
+        $MC_COMMAND ;
+        STATUS=$? ;
+      done ;
+      set -e ; # reset `e` as active
+      return 0
+    }
+    
+    # checkBucketExists ($bucket)
+    # Check if the bucket exists, by using the exit code of `mc ls`
+    checkBucketExists() {
+      BUCKET=$1
+      CMD=$(${MC} ls myminio/$BUCKET > /dev/null 2>&1)
+      return $?
+    }
+    
+    # createBucket ($bucket, $policy, $purge)
+    # Ensure bucket exists, purging if asked to
+    createBucket() {
+      BUCKET=$1
+      POLICY=$2
+      PURGE=$3
+    
+      # Purge the bucket, if set & exists
+      # Since PURGE is user input, check explicitly for `true`
+      if [ $PURGE = true ]; then
+        if checkBucketExists $BUCKET ; then
+          echo "Purging bucket '$BUCKET'."
+          set +e ; # don't exit if this fails
+          ${MC} rm -r --force myminio/$BUCKET
+          set -e ; # reset `e` as active
+        else
+          echo "Bucket '$BUCKET' does not exist, skipping purge."
+        fi
+      fi
+    
+      # Create the bucket if it does not exist
+      if ! checkBucketExists $BUCKET ; then
+        echo "Creating bucket '$BUCKET'"
+        ${MC} mb myminio/$BUCKET
+      else
+        echo "Bucket '$BUCKET' already exists."
+      fi
+    
+      # At this point, the bucket should exist, skip checking for existence
+      # Set policy on the bucket
+      echo "Setting policy of bucket '$BUCKET' to '$POLICY'."
+      ${MC} policy set $POLICY myminio/$BUCKET
+    }
+    
+    # Try connecting to Minio instance
+    scheme=http
+    connectToMinio $scheme
+    # Create the bucket
+    createBucket logiq none false
+---
+# Source: logiq/templates/tcpConfigMap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-tcp-ports
+  namespace: logiq
+data:
+  9998:
+    logiq/logiq-flash:9998
+  8081:
+    logiq/logiq-flash:8081
+  514:
+    logiq/logiq-flash:514
+  7514:
+    logiq/logiq-flash:7514
+  20514:
+    logiq/logiq-flash:20514
+  2514:
+    logiq/logiq-flash:2514
+---
+# Source: logiq/charts/s3-gateway/templates/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: s3-gateway
+  labels:
+    app: s3-gateway
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: "10Gi"
+  storageClassName: "standard"
+---
+# Source: logiq/charts/kubernetes-ingress/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: logiq-kubernetes-ingress
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - endpoints
+  - nodes
+  - pods
+  - services
+  - namespaces
+  - events
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - patch
+  - update
+- apiGroups:
+  - "extensions"
+  resources:
+  - ingresses
+  - ingresses/status
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+- apiGroups:
+  - "networking.k8s.io/v1beta1"
+  resources:
+  - ingresses
+  - ingresses/status
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: logiq/charts/kubernetes-ingress/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: logiq-kubernetes-ingress
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: logiq-kubernetes-ingress
+subjects:
+- kind: ServiceAccount
+  name: logiq-kubernetes-ingress
+  namespace: logiq
+---
+# Source: logiq/charts/s3-gateway/templates/post-install-prometheus-metrics-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: s3-gateway-update-prometheus-secret
+  labels:
+    app: s3-gateway-update-prometheus-secret
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+    resourceNames:
+      - s3-gateway-prometheus
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - get
+    resourceNames:
+      - s3-gateway
+---
+# Source: logiq/charts/s3-gateway/templates/post-install-prometheus-metrics-rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: s3-gateway-update-prometheus-secret
+  labels:
+    app: s3-gateway-update-prometheus-secret
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: s3-gateway-update-prometheus-secret
+subjects:
+  - kind: ServiceAccount
+    name: s3-gateway-update-prometheus-secret
+    namespace: logiq
+---
+# Source: logiq/charts/flash-brew-helm/templates/002-pithos-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pithos
+spec:
+  type: ClusterIP
+  ports:
+  - name: "9083"
+    port: 9083
+    targetPort: 9083
+  - name: "6002"
+    port: 6002
+    targetPort: 6002
+  selector:
+    app: pithos
+---
+# Source: logiq/charts/flash-brew-helm/templates/004-beetle-coordinator-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: beetle-coordinator
+spec:
+  type: ClusterIP
+  ports:
+  - name: "8080"
+    port: 8080
+    targetPort: 8080
+  selector:
+    app: beetle-coordinator
+---
+# Source: logiq/charts/flash-brew-helm/templates/006-beetle-worker-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: beetle-worker
+spec:
+  type: ClusterIP
+  ports:
+  - name: "8081"
+    port: 8081
+    targetPort: 8081
+  selector:
+    app: beetle-worker
+---
+# Source: logiq/charts/flash-coffee/templates/002-coffee-server-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: coffee
+spec:
+  type: ClusterIP
+  ports:
+  - name: "http"
+    port: 80
+    targetPort: 5000
+  selector:
+    app: coffee-server
+status:
+  loadBalancer: {}
+---
+# Source: logiq/charts/flash-discovery/templates/discoveryService.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: flash-discovery
+  labels:
+    app: flash-discovery
+    chart: flash-discovery-1.0.0
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: discovery-health
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+      name: discovery-api
+
+  selector:
+    app: flash-discovery
+    release: logiq
+---
+# Source: logiq/charts/kubernetes-ingress/templates/controller-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: logiq-kubernetes-ingress
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+  annotations:
+spec:
+  
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: https
+    - name: stat
+      port: 1024
+      protocol: TCP
+      targetPort: stat
+    - name: syslog-tcp
+      port: 514
+      protocol: TCP
+      targetPort: syslog
+    - name: syslogtls-tcp
+      port: 7514
+      protocol: TCP
+      targetPort: syslogtls
+    - name: relp-tcp
+      port: 20514
+      protocol: TCP
+      targetPort: relp
+    - name: relptls-tcp
+      port: 2514
+      protocol: TCP
+      targetPort: relptls
+    - name: grpc-tcp
+      port: 8081
+      protocol: TCP
+      targetPort: grpc
+    - name: webcli-tcp
+      port: 9998
+      protocol: TCP
+      targetPort: webcli
+  selector:
+    app.kubernetes.io/name: kubernetes-ingress
+    app.kubernetes.io/instance: logiq
+  externalIPs:
+---
+# Source: logiq/charts/kubernetes-ingress/templates/default-backend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: logiq-kubernetes-ingress-default-backend
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+spec:
+  type: ClusterIP
+  clusterIP: None 
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: logiq-kubernetes-ingress-default-backend
+    app.kubernetes.io/instance: logiq
+---
+# Source: logiq/charts/logiq-flash/templates/service-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: logiq-flash-headless
+  labels:
+    app: logiq-flash-headless
+    chart: logiq-flash-1.0.0
+    release: logiq
+    heritage: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 8081
+      targetPort: 50054
+      protocol: TCP
+      name: grpc
+    - port: 9999
+      targetPort: 9999
+      protocol: TCP
+      name: api
+    - port: 9998
+      targetPort: 9998
+      protocol: TCP
+      name: webcli
+    - port: 514
+      targetPort: 514
+      protocol: TCP
+      name: syslog
+    - port: 7514
+      targetPort: 7514
+      protocol: TCP
+      name: syslogtls
+    - port: 20514
+      targetPort: 20514
+      protocol: TCP
+      name: relp
+    - port: 2514
+      targetPort: 2514
+      protocol: TCP
+      name: relptls
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: liveness-port
+  selector:
+    app: logiq-flash
+    release: logiq
+---
+# Source: logiq/charts/logiq-flash/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: logiq-flash
+  labels:
+    app: logiq-flash
+    chart: logiq-flash-1.0.0
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+      targetPort: 50054
+      protocol: TCP
+      name: grpc
+    - port: 9998
+      targetPort: 9998
+      protocol: TCP
+      name: webcli
+    - port: 9999
+      targetPort: 9999
+      protocol: TCP
+      name: api
+    - port: 514
+      targetPort: 514
+      protocol: TCP
+      name: syslog
+    - port: 7514
+      targetPort: 7514
+      protocol: TCP
+      name: syslogtls
+    - port: 2514
+      targetPort: 2514
+      protocol: TCP
+      name: relptls
+    - port: 20514
+      targetPort: 20514
+      protocol: TCP
+      name: relp
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: liveness-port
+  selector:
+    app: logiq-flash
+    release: logiq
+---
+# Source: logiq/charts/postgres/templates/svc-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  labels:
+    app: postgres
+    chart: postgres-8.7.3
+    release: "logiq"
+    heritage: "Helm"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgres
+    release: "logiq"
+---
+# Source: logiq/charts/postgres/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    chart: postgres-8.7.3
+    release: "logiq"
+    heritage: "Helm"
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgres
+    release: "logiq"
+    role: master
+---
+# Source: logiq/charts/redis/templates/headless-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: redis
+    release: logiq
+---
+# Source: logiq/charts/redis/templates/redis-master-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: redis
+    release: logiq
+    role: master
+---
+# Source: logiq/charts/redis/templates/redis-slave-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-slave
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+  selector:
+    app: redis
+    release: logiq
+    role: slave
+---
+# Source: logiq/charts/s3-gateway/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3-gateway
+  labels:
+    app: s3-gateway
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+  selector:
+    app: s3-gateway
+    release: logiq
+---
+# Source: logiq/charts/flash-brew-helm/templates/001-pithos-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pithos
+  labels:
+    app: pithos-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pithos
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pithos
+    spec:
+      
+      initContainers:
+      - name: check-logiq-flash
+        image: logiqai/toolbox
+        command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://logiq-flash:9999/v1/config); do echo "waiting for logiq server"; sleep 2;
+          done;
+      - name: check-postgres
+        image: logiqai/toolbox
+        command: ['sh', '-c', 
+          'until pg_isready -h postgres -p 5432 -d postgresql://postgres:postgres@postgres:5432/postgres;
+          do echo waiting for database; sleep 2; done;']
+      containers:
+      - name: pithos
+        image: "logiqai/flash-brew-pithos:brew.1.2.0"
+        env:
+          - name: HIVE_API_PORT
+            value: "6002"
+          - name: HIVE_HEAPSPACE
+            value: "10240"
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_URL
+            value: redis://redis-master:6379/0
+          - name: POSTGRES_USER
+            value: "postgres"
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_HOST
+            value: "postgres"
+          - name: POSTGRES_DB
+            value: "postgres"
+          - name: S3_URL
+            value: "http://s3-gateway:9000"
+          - name: S3_ACCESS
+            value: "logiq_access"
+          - name: S3_SECRET
+            value: "logiq_secret"
+          - name: S3_BUCKET
+            value: "logiq"
+        ports:
+        - containerPort: 9083
+        - containerPort: 6002
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 6002
+          initialDelaySeconds: 120
+          periodSeconds: 60
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 6002
+          initialDelaySeconds: 120
+          periodSeconds: 60
+        resources:
+            requests:
+              cpu: 1000m
+              memory: 4Gi
+        imagePullPolicy: Always    
+      restartPolicy: Always
+---
+# Source: logiq/charts/flash-brew-helm/templates/003-beetle-coordinator-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: beetle-coordinator-deployment
+  name: beetle-coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beetle-coordinator
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: beetle-coordinator
+    spec:
+      
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --head --fail http://pithos:6002/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      - command:
+        - sh
+        - -c
+        - /ready_init_container.sh python /send_ready_messsage.py;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: send-ready
+      containers:
+      - image: "logiqai/flash-brew-beetle:brew.1.2.0"
+        name: beetle-coordinator
+        env:
+          - name: IS_COORDINATOR
+            value: "true"
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_URL
+            value: redis://redis-master:6379/0
+          - name: POSTGRES_USER
+            value: "postgres"
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_HOST
+            value: "postgres"
+          - name: POSTGRES_DB
+            value: "postgres"
+          - name: S3_URL
+            value: "http://s3-gateway:9000"
+          - name: S3_ACCESS
+            value: "logiq_access"
+          - name: S3_SECRET
+            value: "logiq_secret"
+          - name: S3_BUCKET
+            value: "logiq"
+        ports:
+        - containerPort: 8080
+        resources:
+            requests:
+              cpu: 500m
+              memory: 4Gi
+        imagePullPolicy: Always    
+      restartPolicy: Always
+---
+# Source: logiq/charts/flash-brew-helm/templates/005-beetle-worker-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: beetle-worker-deployment
+  name: beetle-worker
+spec:
+  replicas: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: beetle-worker
+  template:
+    metadata:
+      labels:
+        app: beetle-worker
+    spec:
+      
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --head --fail http://pithos:6002/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      containers:
+      - image: "logiqai/flash-brew-beetle:brew.1.2.0"
+        ports:
+        - containerPort: 8081
+        resources:
+            requests:
+              cpu: 1000m
+              memory: 4Gi
+        imagePullPolicy: Always
+        name: beetle-worker
+        env:
+          - name: IS_COORDINATOR
+            value: "false"
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_URL
+            value: redis://redis-master:6379/0
+          - name: POSTGRES_USER
+            value: "postgres"
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_HOST
+            value: "postgres"
+          - name: POSTGRES_DB
+            value: "postgres"
+          - name: S3_URL
+            value: "http://s3-gateway:9000"
+          - name: S3_ACCESS
+            value: "logiq_access"
+          - name: S3_SECRET
+            value: "logiq_secret"
+          - name: S3_BUCKET
+            value: "logiq"
+      restartPolicy: Always
+---
+# Source: logiq/charts/flash-coffee/templates/001-coffee-server-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: coffee-server-deployment
+  name: coffee-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coffee-server
+  template:
+    metadata:
+      labels:
+        app: coffee-server
+    spec:
+      
+      initContainers:
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h postgres -p 5432 -d postgresql://postgres:postgres@postgres:5432/postgres;
+          do echo waiting for database; sleep 2; done;']
+      - command:
+        - sh
+        - -c
+        - until redis-cli -h redis-master ping; do echo "waiting for redis-master"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-redis
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://pithos:6002/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://beetle-coordinator:8080); do echo "waiting for beetle coordinator"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-beetle
+      containers:
+        - env:
+          - name: PYTHONUNBUFFERED
+            value: "0"
+          - name: COOKIE_SECRET
+            value: d84c0edd-ab5e-4664-b0ee-2cd15a9ae5f0 
+          - name: DATABASE_URL
+            value: postgresql://postgres:postgres@postgres:5432/postgres
+          - name: LOG_LEVEL
+            value: WARN
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_URL
+            value: redis://redis-master:6379/0
+          - name: POSTGRES_USER
+            value: "postgres"
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_HOST
+            value: "postgres"
+          - name: POSTGRES_PORT
+            value: "5432"
+          - name: POSTGRES_DB
+            value: "postgres"
+          - name: S3_URL
+            value: "http://s3-gateway:9000"
+          - name: S3_ACCESS
+            value: "logiq_access"
+          - name: S3_SECRET
+            value: "logiq_secret"
+          - name: S3_BUCKET
+            value: "logiq"
+          - name: WEB_WORKERS
+            value: ""
+          - name: CONFIGURE_LOGIQ_DS
+            value: "true"
+          - name:  COFFEE_UI_SERVER_URL
+            value: http://coffee:80
+          - name: CONFIGURE_LOGIQEVENTS_DS
+            value: "false"
+          image: "logiqai/flash-brew-coffee:brew.1.2.0"
+          name: coffee
+          command: ["/app/flash-brew/setup_coffee.sh"]
+          ports:
+            - containerPort: 5000
+          readinessProbe:
+            httpGet:
+              port:  5000
+              path: /static/js/jquery.min.js
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 4
+            successThreshold: 2
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+          imagePullPolicy: Always    
+      restartPolicy: Always
+---
+# Source: logiq/charts/flash-coffee/templates/003-coffee-worker-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: coffee-worker-deployment
+  name: coffee-worker
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coffee-worker
+  template:
+    metadata:
+      labels:
+        app: coffee-worker
+    spec:
+      
+      initContainers:
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h postgres -p 5432 -d postgresql://postgres:postgres@postgres:5432/postgres;
+          do echo waiting for database; sleep 2; done;']
+      - command:
+        - sh
+        - -c
+        - until redis-cli -h redis-master ping; do echo "waiting for redis-master"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-redis
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://pithos:6002/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://beetle-coordinator:8080); do echo "waiting for beetle coordinator"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-beetle
+      containers:
+        - args:
+          - scheduler
+          env:
+          - name: PYTHONUNBUFFERED
+            value: "0"
+          - name: COOKIE_SECRET
+            value: d84c0edd-ab5e-4664-b0ee-2cd15a9ae5f0 
+          - name: QUEUES
+            value: queries,scheduled_queries,celery
+          - name: DATABASE_URL
+            value: postgresql://postgres:postgres@postgres:5432/postgres
+          - name: LOG_LEVEL
+            value: WARN
+          - name: WORKERS_COUNT
+            value: "3"
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_URL
+            value: redis://redis-master:6379/0
+          - name: POSTGRES_USER
+            value: "postgres"
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_HOST
+            value: "postgres"
+          - name: POSTGRES_PORT
+            value: "5432"
+          - name: POSTGRES_DB
+            value: "postgres"
+          - name: S3_URL
+            value: "http://s3-gateway:9000"
+          - name: S3_ACCESS
+            value: "logiq_access"
+          - name: S3_SECRET
+            value: "logiq_secret"
+          - name: S3_BUCKET
+            value: "logiq"
+          image: "logiqai/flash-brew-coffee:brew.1.2.0"
+          name: coffee-worker
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+          imagePullPolicy: Always
+      restartPolicy: Always
+---
+# Source: logiq/charts/kubernetes-ingress/templates/controller-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logiq-kubernetes-ingress
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-ingress
+      app.kubernetes.io/instance: logiq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kubernetes-ingress
+        app.kubernetes.io/instance: logiq
+    spec:
+      serviceAccountName: logiq-kubernetes-ingress
+      containers:
+        - name: kubernetes-ingress-controller
+          image: "haproxytech/kubernetes-ingress:1.4.2"
+          imagePullPolicy: IfNotPresent
+          args:
+          - --default-ssl-certificate=logiq/logiq-kubernetes-ingress-default-cert
+          - --configmap=logiq/logiq-kubernetes-ingress
+          
+          - --configmap-tcp-services=logiq/ingress-tcp-ports
+          
+          - --default-backend-service=logiq/logiq-kubernetes-ingress-default-backend
+          - --ingress.class=logiq-ingress-logiq
+          ports:
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: relp
+              containerPort: 20514
+              protocol: TCP
+            - name: relptls
+              containerPort: 2514
+              protocol: TCP
+            - name: stat
+              containerPort: 1024
+              protocol: TCP
+            - name: syslog
+              containerPort: 514
+              protocol: TCP
+            - name: syslogtls
+              containerPort: 7514
+              protocol: TCP
+            - name: webcli
+              containerPort: 9998
+              protocol: TCP
+            - name: syslog-tcp
+              containerPort: 514
+              protocol: TCP
+            - name: syslogtls-tcp
+              containerPort: 7514
+              protocol: TCP
+            - name: relp-tcp
+              containerPort: 20514
+              protocol: TCP
+            - name: relptls-tcp
+              containerPort: 2514
+              protocol: TCP
+            - name: grpc-tcp
+              containerPort: 8081
+              protocol: TCP
+            - name: webcli-tcp
+              containerPort: 9998
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 1042
+              scheme: HTTP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 1042
+              scheme: HTTP
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+---
+# Source: logiq/charts/kubernetes-ingress/templates/default-backend-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logiq-kubernetes-ingress-default-backend
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logiq-kubernetes-ingress-default-backend
+      app.kubernetes.io/instance: logiq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logiq-kubernetes-ingress-default-backend
+        app.kubernetes.io/instance: logiq
+    spec:
+      containers:
+        - name: kubernetes-ingress-default-backend
+          image: "k8s.gcr.io/defaultbackend-amd64:1.5"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+      serviceAccountName: logiq-kubernetes-ingress-default-backend
+---
+# Source: logiq/charts/s3-gateway/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-gateway
+  labels:
+    app: s3-gateway
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: s3-gateway
+      release: logiq
+  template:
+    metadata:
+      name: s3-gateway
+      labels:
+        app: s3-gateway
+        release: logiq
+      annotations:
+        rollme: "R6Nq1"
+        checksum/secrets: e4f098058711024539c329a86629db66f2b6f524b6090ab839e1875ba67924c5
+        checksum/config: d8104fe8ca92bf8e5707ce41c188dc531881ed35aff17121ce70933f6a141ea4
+    spec:
+      serviceAccountName: "s3-gateway"
+      containers:
+        - name: s3-gateway
+          image: "minio/minio:RELEASE.2020-03-25T07-03-04Z"
+          imagePullPolicy: IfNotPresent
+          command: [ "/bin/sh",
+          "-ce",
+          "/usr/bin/docker-entrypoint.sh minio -S /etc/minio/certs/ server /export" ]
+          volumeMounts:
+            - name: export
+              mountPath: /export
+          ports:
+            - name: http
+              containerPort: 9000
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-gateway
+                  key: accesskey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-gateway
+                  key: secretkey
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: export
+          persistentVolumeClaim:
+            claimName: s3-gateway
+        - name: minio-user
+          secret:
+            secretName: s3-gateway
+---
+# Source: logiq/charts/flash-discovery/templates/discoveryStatefulSet.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: flash-discovery
+  labels:
+    app: flash-discovery
+    chart: flash-discovery-1.0.0
+    release: logiq
+    heritage: Helm
+spec:
+  serviceName: flash-discovery
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flash-discovery
+      release: logiq
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: standard
+  template:
+    metadata:
+      labels:
+        app: flash-discovery
+        release: logiq
+    spec:
+      
+      volumes:
+        
+        
+      containers:
+        - name: flash-discovery
+          image: "logiqai/flash-discovery:1.2.0"
+          imagePullPolicy: Always
+          volumeMounts:
+          - mountPath: /flash/db
+            name: data
+        
+          ports:
+            - name: healthcheck
+              containerPort: 8080
+              protocol: TCP
+            - name: discovery
+              containerPort: 4000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: healthcheck
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: healthcheck
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+---
+# Source: logiq/charts/logiq-flash/templates/statefulSet.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: logiq-flash
+  labels:
+    app: logiq-flash
+    chart: logiq-flash-1.0.0
+    release: logiq
+    heritage: Helm
+spec:
+  serviceName: logiq-flash-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: logiq-flash
+      release: logiq
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: standard
+  template:
+    metadata:
+      labels:
+        app: logiq-flash
+        release: logiq
+    spec:
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://flash-discovery:8080/ready); do echo "waiting for discovery"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-discovery
+      - name: check-redis
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - until redis-cli -h redis-master ping; do echo "waiting for redis-master"; sleep 2;
+          done;
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h postgres -p 5432 -d postgresql://postgres:postgres@postgres:5432/postgres;
+          do echo waiting for database; sleep 2; done;']
+      volumes:
+        
+        - name: config
+          configMap:
+            
+            name: logiq-config
+            
+        
+        
+      
+      containers:
+        - name: logiq-flash
+          image: "logiqai/flash:1.2.0"
+          imagePullPolicy: Always
+          env:
+          - name: DISCOVERY_URL
+            value: http://flash-discovery:4000
+          - name: DISCOVERY_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: DISCOVERY_DOMAIN
+            value: logiq-flash-headless
+          - name: FLAGS_EXTRA
+            value: -event_workers 25 -workers 100 -timeout_inital_logs 1h
+          
+          - name: REDIS_HOST
+            value: redis-master
+          - name: REDIS_PORT
+            value: "6379"
+          
+          - name: POSTGRES_HOST
+            value: postgres
+          - name: POSTGRES_PORT
+            value: "5432"
+          - name: POSTGRES_USER
+            value: postgres
+          - name: POSTGRES_PASSWORD
+            value: "postgres"
+          - name: POSTGRES_DB
+            value: "postgres" 
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          volumeMounts:
+          - mountPath: /flash/config
+            name: config
+          - mountPath: /flash/db
+            name: data
+          
+          ports:
+            - name: grpc
+              containerPort: 50054
+              protocol: TCP
+            - name: webcli
+              containerPort: 9998
+              protocol: TCP
+            - name: api
+              containerPort: 9999
+              protocol: TCP
+            - name: syslog
+              containerPort: 514
+              protocol: TCP
+            - name: syslogtls
+              containerPort: 7514
+              protocol: TCP
+            - name: relp
+              containerPort: 20514
+              protocol: TCP
+            - name: relptls
+              containerPort: 2514
+              protocol: TCP
+            - name: healthcheck
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 1
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 3Gi
+---
+# Source: logiq/charts/postgres/templates/statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+    chart: postgres-8.7.3
+    release: "logiq"
+    heritage: "Helm"
+spec:
+  serviceName: postgres-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: postgres
+      release: "logiq"
+      role: master
+  template:
+    metadata:
+      name: postgres
+      labels:
+        app: postgres
+        chart: postgres-8.7.3
+        release: "logiq"
+        heritage: "Helm"
+        role: master
+    spec:      
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: postgres
+          image: docker.io/bitnami/postgresql:11.7.0-debian-10-r65
+          imagePullPolicy: "IfNotPresent"
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+          securityContext:
+            runAsUser: 1001
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: "/bitnami/postgresql"
+            - name: PGDATA
+              value: "/bitnami/postgresql/data"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "postgres" -d "postgres" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "postgres" -d "postgres" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: 
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+        storageClassName: standard
+---
+# Source: logiq/charts/redis/templates/redis-master-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-master
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    release: logiq
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: logiq
+      role: master
+  serviceName: redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-10.6.5
+        release: logiq
+        role: master
+      annotations:
+        checksum/health: e8e99923b8eed0e2c97e84461c2924f5a5841f39626d08f86d5b949b40404c20
+        checksum/configmap: f41ff4a2c2c5ffc2d0b013fc50fdc17df501f7da7dad01d7175c63e15f46adb9
+        checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    spec:      
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: "default"
+      containers:
+      - name: redis
+        image: "docker.io/bitnami/redis:5.0.8-debian-10-r36"
+        imagePullPolicy: "IfNotPresent"
+        securityContext:
+          runAsUser: 1001
+        command:
+        - /bin/bash
+        - -c
+        - |
+          if [[ -n $REDIS_PASSWORD_FILE ]]; then
+            password_aux=`cat ${REDIS_PASSWORD_FILE}`
+            export REDIS_PASSWORD=$password_aux
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+          fi
+          ARGS=("--port" "${REDIS_PORT}")
+          ARGS+=("--protected-mode" "no")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+          /run.sh ${ARGS[@]}
+        env:
+        - name: REDIS_REPLICATION_MODE
+          value: master
+        - name: ALLOW_EMPTY_PASSWORD
+          value: "yes"
+        - name: REDIS_PORT
+          value: "6379"
+        ports:
+        - name: redis
+          containerPort: 6379
+        livenessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_liveness_local.sh 5
+        readinessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_readiness_local.sh 5
+        resources:
+          null
+        volumeMounts:
+        - name: health
+          mountPath: /health
+        - name: redis-data
+          mountPath: /data
+          subPath: 
+        - name: config
+          mountPath: /opt/bitnami/redis/mounted-etc
+        - name: redis-tmp-conf
+          mountPath: /opt/bitnami/redis/etc/
+      volumes:
+      - name: health
+        configMap:
+          name: redis-health
+          defaultMode: 0755
+      - name: config
+        configMap:
+          name: redis
+      - name: redis-tmp-conf
+        emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: logiq
+          heritage: Helm
+          component: master
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+        
+        selector:
+  updateStrategy:
+    type: RollingUpdate
+---
+# Source: logiq/charts/redis/templates/redis-slave-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-slave
+  namespace: logiq
+  labels:
+    app: redis
+    chart: redis-10.6.5
+    release: logiq
+    heritage: Helm
+spec:
+  replicas: 2
+  serviceName: redis-headless
+  selector:
+    matchLabels:
+      app: redis
+      release: logiq
+      role: slave
+  template:
+    metadata:
+      labels:
+        app: redis
+        release: logiq
+        chart: redis-10.6.5
+        role: slave
+      annotations:
+        checksum/health: e8e99923b8eed0e2c97e84461c2924f5a5841f39626d08f86d5b949b40404c20
+        checksum/configmap: f41ff4a2c2c5ffc2d0b013fc50fdc17df501f7da7dad01d7175c63e15f46adb9
+        checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    spec:      
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: "default"
+      containers:
+      - name: redis
+        image: docker.io/bitnami/redis:5.0.8-debian-10-r36
+        imagePullPolicy: "IfNotPresent"
+        securityContext:
+          runAsUser: 1001
+        command:
+        - /bin/bash
+        - -c
+        - |
+          if [[ -n $REDIS_PASSWORD_FILE ]]; then
+            password_aux=`cat ${REDIS_PASSWORD_FILE}`
+            export REDIS_PASSWORD=$password_aux
+          fi
+          if [[ -n $REDIS_MASTER_PASSWORD_FILE ]]; then
+            password_aux=`cat ${REDIS_MASTER_PASSWORD_FILE}`
+            export REDIS_MASTER_PASSWORD=$password_aux
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+          fi
+          if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+            cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+          fi
+          ARGS=("--port" "${REDIS_PORT}")
+          ARGS+=("--slaveof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+          ARGS+=("--protected-mode" "no")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+          ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+          /run.sh "${ARGS[@]}"
+        env:
+        - name: REDIS_REPLICATION_MODE
+          value: slave
+        - name: REDIS_MASTER_HOST
+          value: redis-master-0.redis-headless.logiq.svc.cluster.local
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_MASTER_PORT_NUMBER
+          value: "6379"
+        - name: ALLOW_EMPTY_PASSWORD
+          value: "yes"
+        ports:
+        - name: redis
+          containerPort: 6379
+        livenessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_liveness_local_and_master.sh 5
+        readinessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 5
+          exec:
+            command:
+            - sh
+            - -c
+            - /health/ping_readiness_local_and_master.sh 5
+        resources:
+          null
+        volumeMounts:
+        - name: health
+          mountPath: /health
+        - name: redis-data
+          mountPath: /data
+        - name: config
+          mountPath: /opt/bitnami/redis/mounted-etc
+        - name: redis-tmp-conf
+          mountPath: /opt/bitnami/redis/etc
+      volumes:
+      - name: health
+        configMap:
+          name: redis-health
+          defaultMode: 0755
+      - name: config
+        configMap:
+          name: redis
+      - name: sentinel-tmp-conf
+        emptyDir: {}
+      - name: redis-tmp-conf
+        emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: logiq
+          heritage: Helm
+          component: slave
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+        
+        selector:
+  updateStrategy:
+    type: RollingUpdate
+---
+# Source: logiq/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: logiq-ingress
+  labels:
+    helm.sh/chart: logiq-1.0.0
+    app.kubernetes.io/name: logiq
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: "1.2.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: logiq-ingress-logiq
+    ingress.kubernetes.io/proxy-body-size: 100M
+    ingress.kubernetes.io/app-root: "/"
+spec:
+  tls:
+    - hosts:
+        - "logiq.mydomain.com"
+      
+  rules:
+    - host: "logiq.mydomain.com"
+      http:
+        paths:
+        - path: /
+          backend:
+            serviceName: coffee
+            servicePort: 80
+        - path: /v1
+          backend:
+            serviceName: logiq-flash
+            servicePort: 9999
+---
+# Source: logiq/charts/kubernetes-ingress/templates/controller-defaultcertsecret.yaml
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/tls
+metadata:
+  name: logiq-kubernetes-ingress-default-cert
+  namespace: logiq
+  labels:
+    app.kubernetes.io/name: kubernetes-ingress
+    helm.sh/chart: kubernetes-ingress-1.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: logiq
+    app.kubernetes.io/version: 1.4.2
+  annotations:
+    "helm.sh/hook": "pre-install"
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUMvekNDQWVlZ0F3SUJBZ0lRTUdGMlVHSXVVWldreGNjSWZYbW54akFOQmdrcWhraUc5dzBCQVFzRkFEQWcKTVI0d0hBWURWUVFERXhWcmRXSmxjbTVsZEdWekxXbHVaM0psYzNNdFkyRXdIaGNOTWpBd05UQTJNak0xTVRVegpXaGNOTWpFd05UQTJNak0xTVRVeldqQVdNUlF3RWdZRFZRUURFd3RzYjJkcGNTNXNiMmRwY1RDQ0FTSXdEUVlKCktvWklodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQU1DbURGalo1cWRnWjhYSUU1M2s2bHVFQ2diTE5qaksKdGJHbHhQNlErUStjam5FaXBxVDFiU04zUDR5ajYvSUFQTUV2ckxtcjR6VGFJaXJZSWJzSFNtNkRqWHZyRmVvZgpmN3Q4V0dTdHFPcUM1L3RmdWdrT3FtbXI5QXpzZU9tNTNnN3o5NkFCTEZ4Mzhjckk4SDNhcXJQZ0p4OGNnaHk0CnNuazhGMEkyK0tOY2JzV3NxTG5WanlyMDZTTUthZkdlbmxIWXV3RFp4RWlFQ3d3b1dnNzdIWTdMMUFJQmlmUTEKZ01qSmtLZ0hweDVkdEpPRGM3RmgyVzh0V1p6OWV5ajVkdEUzaWhvelJpdkpSRk0reHZHaXBhQXpTOUlMMzdaQgpwRW9WRkxyckdvVEhOblZuT2hhVFVqVy9VNTRtdlVYOURmRG9OSWxHdUk3QmFJS0EwVmZ6WFljQ0F3RUFBYU0vCk1EMHdEZ1lEVlIwUEFRSC9CQVFEQWdXZ01CMEdBMVVkSlFRV01CUUdDQ3NHQVFVRkJ3TUJCZ2dyQmdFRkJRY0QKQWpBTUJnTlZIUk1CQWY4RUFqQUFNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUE1SFlmbXFSMlBUUVh0eWtMWgphVFUzcEw2cHlrUDFEcVRPRVlqK3ByRCtPcEd3Y2dXK3BzNnBsS1FmdVJkNFlNN0VFbmVJVHhBS1lHR1NvL3B3Cjk1d1VlWkZkSk1GTlBvNW9VeHhab2xRb1BhQW5YWlFCQ2ovVlRQaUxaNTR1aExFV0VlNjhrVVpnUm9DNzc5Z0QKaWNWMnNBeHBOa2VaajFLUTRLNDZvSmp2a2JWQlNlbU94ZWIyVXF4OFZUanRhY1kxTGl5TTQweUkySDNCaDA2TQo4UmIzUFBqTDNRVW1IWnkvQU9kOHl6SmZ3TEJKNDg5clorWUdQMGNaVVF3NUNVSGJFY3ROVENNeFhxT2pFOWsyCkpKaWZORkpqZERKR1NqWlZrbXdaZjVIU3ZBeUh6cXRrbndsWXdlUks3RjlhRVpzSHFZSVg0b0FKRWdEQ29zU0sKN0h6ZQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcEFJQkFBS0NBUUVBd0tZTVdObm1wMkJueGNnVG5lVHFXNFFLQnNzMk9NcTFzYVhFL3BENUQ1eU9jU0ttCnBQVnRJM2MvaktQcjhnQTh3UytzdWF2ak5Ob2lLdGdodXdkS2JvT05lK3NWNmg5L3UzeFlaSzJvNm9MbisxKzYKQ1E2cWFhdjBET3g0NmJuZUR2UDNvQUVzWEhmeHlzandmZHFxcytBbkh4eUNITGl5ZVR3WFFqYjRvMXh1eGF5bwp1ZFdQS3ZUcEl3cHA4WjZlVWRpN0FObkVTSVFMRENoYUR2c2Rqc3ZVQWdHSjlEV0F5TW1RcUFlbkhsMjBrNE56CnNXSFpieTFablAxN0tQbDIwVGVLR2pOR0s4bEVVejdHOGFLbG9ETkwwZ3ZmdGtHa1NoVVV1dXNhaE1jMmRXYzYKRnBOU05iOVRuaWE5UmYwTjhPZzBpVWE0anNGb2dvRFJWL05kaHdJREFRQUJBb0lCQUErK2drdlFveFVTditoZQpEWnhkMVBsZHRTUVEvNEZzcjZTeEU0UnFmTEJWN3g0MzRyNmdnQ2JoM0FPMmNkWDVSdjNTMDU3bytVeWNkeVpoCk80QjVmQS9FR0pBRUNtcHo0SkNGL1FOZFhleXNmaUVCRmNjZnQ3V2pJL0xhY0pkSlpXaDdiOFZYMHpSTGFTdFYKZUxJUWFOc0NlckFFT0czNGVqMkdON0JscGJSVCtUeThkQmRXUEVCaFhRM0tBWmUzeWlWelpVQ3FENk9ienlGZgpLRUgxU0ppU0M0T3doWDZwejllQVFtbUtMckpDU3Q5TWxGMmpkdE5sbjZWSnRyRExFeDh5TUNHWkFOcm5ka0UwCktVWW5LZVFRNGNWZE9vaVMrd2MwOG5UTnRqTlowbklPQ3BsRnNpUVl1ZkNaR3Z2T3FIem8wSXNnTm9hZ0xXUmMKZVdmSzJ5RUNnWUVBMy9WMWsvTFBzNHFQSWVGTlhqaVhack1KZ1Z4WlFBQk5zYmFiNTJlZFFGMEp2VWZWejJIVQp0VU5wZjRadEJTcTh2ZDdTMGhSVzBiS2ROZ1Y1bElLYmloUmhlVEhvZlNnN1hsYUtVMmVWc0NtazRYVUpOQnhFCnJLYmJhV1Y3VUdyb0dxSVlIcHRscGRGQ2hvclBpcTZWUUwvTExLcUt5VmwrYlhKMkZkOHA4RzBDZ1lFQTNEWFkKbUZNTlZYcW9EVVdiYlNWZGkzNEs4QWhWclIzTGlSTVk1SXhWNXowYWFjK1ZCRGZKMUEvS1JwUG4zRzhXcmx4agpOMlg5UGhhWFFqdmZHVEhaYjVldTU1OERXdVR5K3kxWG0yTUhCNm1wZWU3dkxKRWZCSWltd2dCWnFNaWRvd0EyCi9JcW1pQ3drTHhkbXRDeERGRldSWlBzdlZTcWQvQzhkeEVEeWxVTUNnWUVBbnNxSDhqMXYzTW42VURoUnhlTjAKSGFJRnRFM0pEaUxvODM4WkxVcCs2WHJPQkFHaDdHZGVES05lY3NmYUZwYkZ1ZzM2Qm0vYld0VTh1R2ZMVzJ2NwpZanl2RytJeUNFTjFUSjhwZHBkMFA3SlhNRy90OVoreFpZVHMvdDZ3UDBWOWloeXg0MG1sR1p1MGduWjdUc1lZCkZ3K2x1K2F6ZnEzUWdVTnR6SFl0WTBVQ2dZRUFrWVd2N2ZHc2RSbUtac0xpRkgzRjFNSGxubndUaWtTUFZiVmUKRk9LOGZnUitLUUI1M0lDMWlzTW9pLzJBRXNjQ3VSVHFxQmhwQXhmUXUzOXZUbW9INDl2Y1JNcHJZQ3krZWNpYwpCVjZxcmFDc0U1MFhSMTliblJabEJQMVFRdDdZZFhoVjNnd09ReHpRaUtJeFI4MmNRcHJOYTJzbSsyUWZaU0VKCnpjQ1J6cHNDZ1lCV1dxcnc0Y21QVklvSmY3aEVGemhtWW4xM0E0TGxCTDJRTGdIaURvMkxMYXRoTFVDOXoxUTkKdUM4YTJjdzQzRVVtQ21VOWdnbk1qUTA1a05JZUZoWHpkYjlHaElOcGdRTTNHK2h0ZlFHZVBVTWM3UzJFK21aOQozUWgyWDRSRnB6NDVySFluL2dPTGRyMmUrUFI5UjRybS9NN1NLRTZrSmxQUVlIN3BFQ0pDTHc9PQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=
+---
+# Source: logiq/charts/s3-gateway/templates/post-install-create-bucket-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: s3-gateway-make-bucket-job
+  labels:
+    app: s3-gateway-make-bucket-job
+    chart: s3-gateway-5.0.20
+    release: logiq
+    heritage: Helm
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: s3-gateway-job
+        release: logiq
+    spec:
+      restartPolicy: OnFailure
+      volumes:
+        - name: minio-configuration
+          projected:
+            sources:
+            - configMap:
+                name: s3-gateway
+            - secret:
+                name: s3-gateway
+      containers:
+      - name: minio-mc
+        image: "minio/mc:RELEASE.2020-03-14T01-23-37Z"
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "/config/initialize"]
+        env:
+          - name: MINIO_ENDPOINT
+            value: s3-gateway
+          - name: MINIO_PORT
+            value: "9000"
+        volumeMounts:
+          - name: minio-configuration
+            mountPath: /config
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi

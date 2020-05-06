@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pithos
+spec:
+  type: ClusterIP
+  ports:
+  - name: {{ .Values.pithos.targetPort | quote }}
+    port: {{ .Values.pithos.containerPort }}
+    targetPort: {{ .Values.pithos.targetPort }}
+  - name: {{ .Values.pithos.apiTargetPort | quote }}
+    port: {{ .Values.pithos.apiContainerPort }}
+    targetPort: {{ .Values.pithos.apiTargetPort }}
+  selector:
+    app: pithos

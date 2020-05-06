@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ template "flash-discovery.fullname" . }}
+  labels:
+    app: {{ template "flash-discovery.name" . }}
+    chart: {{ template "flash-discovery.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  serviceName: {{ template "flash-discovery.name" . }}
+  replicas: {{ .Values.replicaCountDiscovery }}
+  selector:
+    matchLabels:
+      app: {{ template "flash-discovery.name" . }}
+      release: {{ .Release.Name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.persistence.size }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "flash-discovery.name" . }}
+        release: {{ .Release.Name }}
+    spec:
+      {{ if .Values.useSecret }}
+      imagePullSecrets:
+        - name: {{ required "pullSecretName is required" .Values.pullSecretName }}
+      {{ end }}
+      volumes:
+        {{ if .Values.configurationFiles }}
+        - name: config
+          configMap:
+            name: {{ template "flash-discovery.name" . }}-config
+        {{ end }}
+        {{ if .Values.secrets }}
+        - name: certs
+          secret:
+            secretName: {{ template "flash-discovery.name" . }}-certs
+        {{ end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+          - mountPath: /flash/db
+            name: data
+        {{ if .Values.secrets }}
+          - mountPath: /flash/certs
+            name: certs
+        {{ end }}
+          ports:
+            - name: healthcheck
+              containerPort: 8080
+              protocol: TCP
+            - name: discovery
+              containerPort: 4000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: healthcheck
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: healthcheck
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+    {{ with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{ end }}
+    {{ with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{ end }}
+    {{ with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{ end }}

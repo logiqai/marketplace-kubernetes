@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: coffee
+spec:
+  type: ClusterIP
+  ports:
+  - name: "http"
+    port: {{ .Values.coffee.port }}
+    targetPort: {{ .Values.coffee.targetPort }}
+  selector:
+    app: coffee-server
+status:
+  loadBalancer: {}

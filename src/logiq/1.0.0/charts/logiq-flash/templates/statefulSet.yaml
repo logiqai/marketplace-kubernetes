@@ -1,0 +1,190 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ template "logiq-flash.name" . }}
+  labels:
+    app: {{ template "logiq-flash.name" . }}
+    chart: {{ template "logiq-flash.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  serviceName: {{ template "logiq-flash.name" . }}-headless
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "logiq-flash.name" . }}
+      release: {{ .Release.Name }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.persistence.pod_storage }}
+      storageClassName: {{ .Values.persistence.storageClassName }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "logiq-flash.name" . }}
+        release: {{ .Release.Name }}
+    spec:
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://flash-discovery:8080/ready); do echo "waiting for discovery"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-discovery
+      - name: check-redis
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - until redis-cli -h {{ .Values.global.environment.redis_host }} ping; do echo "waiting for {{ .Values.global.environment.redis_host }}"; sleep 2;
+          done;
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h {{ .Values.global.environment.postgres_host }} -p {{ .Values.global.environment.postgres_port}} -d postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}};
+          do echo waiting for database; sleep 2; done;']
+      volumes:
+        {{ if .Values.configurationFiles }}
+        - name: config
+          configMap:
+            {{ if not .Values.configMapName }}
+            name: logiq-config
+            {{ else }}
+            name: {{ .Values.configMapName }}
+            {{ end }}
+        {{ end }}
+        {{ if .Values.secrets_name }}
+        - name: certs
+          secret:
+            secretName: {{ .Values.secrets_name }}
+        {{ end }}
+      {{ if .Values.podPerNode }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - {{ template "logiq-flash.name" . }}
+            topologyKey: "kubernetes.io/hostname"
+      {{ end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: DISCOVERY_URL
+            value: http://{{ .Values.discoveryService.name }}:4000
+          - name: DISCOVERY_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: DISCOVERY_DOMAIN
+            value: {{ template "logiq-flash.name" . }}-headless
+          - name: FLAGS_EXTRA
+            value: {{ .Values.environment.flags_extra }}
+          {{ if .Values.global.environment.redis_opts }}
+          - name: REDIS_HOST
+            value: {{ .Values.global.environment.redis_host }}
+          - name: REDIS_PORT
+            value: "{{ .Values.global.environment.redis_port }}"
+          {{ end }}
+          - name: POSTGRES_HOST
+            value: {{ .Values.global.environment.postgres_host }}
+          - name: POSTGRES_PORT
+            value: "{{ .Values.global.environment.postgres_port }}"
+          - name: POSTGRES_USER
+            value: {{ .Values.global.environment.postgres_user }}
+          - name: POSTGRES_PASSWORD
+            value: "{{ .Values.global.environment.postgres_password }}"
+          - name: POSTGRES_DB
+            value: "{{ .Values.global.environment.postgres_db }}" 
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          volumeMounts:
+          - mountPath: /flash/config
+            name: config
+          - mountPath: /flash/db
+            name: data
+          {{ if .Values.secrets_name }}
+          - mountPath: /flash/certs
+            name: certs
+          {{ end }}
+          ports:
+            - name: grpc
+              containerPort: 50054
+              protocol: TCP
+            - name: webcli
+              containerPort: 9998
+              protocol: TCP
+            - name: api
+              containerPort: 9999
+              protocol: TCP
+            - name: syslog
+              containerPort: 514
+              protocol: TCP
+            - name: syslogtls
+              containerPort: 7514
+              protocol: TCP
+            - name: relp
+              containerPort: 20514
+              protocol: TCP
+            - name: relptls
+              containerPort: 2514
+              protocol: TCP
+            - name: healthcheck
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+            timeoutSeconds: 1
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+    {{ with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{ end }}
+    {{ with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{ end }}
+    {{ with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{ end }}

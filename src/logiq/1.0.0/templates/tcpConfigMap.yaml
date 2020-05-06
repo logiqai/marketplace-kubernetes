@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-tcp-ports
+  namespace: {{ .Release.Namespace }}
+data:
+  9998:
+    {{ .Release.Namespace }}/logiq-flash:9998
+  8081:
+    {{ .Release.Namespace }}/logiq-flash:8081
+  514:
+    {{ .Release.Namespace }}/logiq-flash:514
+  7514:
+    {{ .Release.Namespace }}/logiq-flash:7514
+  20514:
+    {{ .Release.Namespace }}/logiq-flash:20514
+  2514:
+    {{ .Release.Namespace }}/logiq-flash:2514

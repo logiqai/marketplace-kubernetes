@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pithos
+  labels:
+    app: pithos-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pithos
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pithos
+    spec:
+      {{ if .Values.useSecret }}
+      imagePullSecrets:
+        - name: {{ required "pullSecretName is required" .Values.pullSecretName }}
+      {{ end }}
+      initContainers:
+      - name: check-logiq-flash
+        image: logiqai/toolbox
+        command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://logiq-flash:9999/v1/config); do echo "waiting for logiq server"; sleep 2;
+          done;
+      - name: check-postgres
+        image: logiqai/toolbox
+        command: ['sh', '-c', 
+          'until pg_isready -h {{ .Values.global.environment.postgres_host }} -p {{ .Values.global.environment.postgres_port}} -d postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}};
+          do echo waiting for database; sleep 2; done;']
+      containers:
+      - name: {{ .Values.pithos.name }}
+        image: "{{ .Values.pithos.image.repository }}:{{ .Values.pithos.image.tag }}"
+        env:
+          - name: HIVE_API_PORT
+            value: {{ .Values.pithos.apiContainerPort | quote}}
+          - name: HIVE_HEAPSPACE
+            value: {{ .Values.pithos.environment.heapspace | quote}}
+          - name: REDIS_HOST
+            value: {{.Values.global.environment.redis_host}}
+          - name: REDIS_URL
+            value: redis://{{.Values.global.environment.redis_host}}:{{ .Values.global.environment.redis_port}}/0
+          - name: POSTGRES_USER
+            value: {{ .Values.global.environment.postgres_user | quote}}
+          - name: POSTGRES_PASSWORD
+            value: {{ .Values.global.environment.postgres_password | quote}}
+          - name: POSTGRES_HOST
+            value: {{ .Values.global.environment.postgres_host | quote}}
+          - name: POSTGRES_DB
+            value: {{ .Values.global.environment.postgres_db | quote}}
+          - name: S3_URL
+            value: {{ .Values.global.environment.s3_url | quote}}
+          - name: S3_ACCESS
+            value: {{ .Values.global.environment.s3_access | quote}}
+          - name: S3_SECRET
+            value: {{ .Values.global.environment.s3_secret | quote}}
+          - name: S3_BUCKET
+            value: {{ .Values.global.environment.s3_bucket | quote}}
+        ports:
+        - containerPort: {{ .Values.pithos.containerPort }}
+        - containerPort: {{ .Values.pithos.apiContainerPort }}
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: {{ .Values.pithos.apiContainerPort }}
+          initialDelaySeconds: 120
+          periodSeconds: 60
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: {{ .Values.pithos.apiContainerPort }}
+          initialDelaySeconds: 120
+          periodSeconds: 60
+        {{- if .Values.pithos.resources }}
+        resources: {{- toYaml .Values.pithos.resources | nindent 12 }}
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.pullPolicy}}    
+      restartPolicy: Always

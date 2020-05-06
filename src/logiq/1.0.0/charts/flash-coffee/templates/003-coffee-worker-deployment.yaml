@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: coffee-worker-deployment
+  name: coffee-worker
+spec:
+  replicas: {{ .Values.coffee_worker.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coffee-worker
+  template:
+    metadata:
+      labels:
+        app: coffee-worker
+    spec:
+      {{ if .Values.useSecret }}
+      imagePullSecrets:
+        - name: {{ required "pullSecretName is required" .Values.pullSecretName }}
+      {{ end }}
+      initContainers:
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h {{ .Values.global.environment.postgres_host }} -p {{ .Values.global.environment.postgres_port}} -d postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}};
+          do echo waiting for database; sleep 2; done;']
+      - command:
+        - sh
+        - -c
+        - until redis-cli -h {{ .Values.global.environment.redis_host }} ping; do echo "waiting for {{ .Values.global.environment.redis_host }}"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-redis
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://pithos:{{ .Values.pithos.apiContainerPort }}/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://beetle-coordinator:{{ .Values.beetle_coordinator.containerPort}}); do echo "waiting for beetle coordinator"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-beetle
+      containers:
+        - args:
+          - scheduler
+          env:
+          - name: PYTHONUNBUFFERED
+            value: "0"
+          - name: COOKIE_SECRET
+            value: d84c0edd-ab5e-4664-b0ee-2cd15a9ae5f0 
+          - name: QUEUES
+            value: queries,scheduled_queries,celery
+          - name: DATABASE_URL
+            value: postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}}
+          - name: LOG_LEVEL
+            value: WARN
+          - name: WORKERS_COUNT
+            value: "{{ .Values.coffee_worker.replicaCount }}"
+          - name: REDIS_HOST
+            value: {{.Values.global.environment.redis_host}}
+          - name: REDIS_URL
+            value: redis://{{.Values.global.environment.redis_host}}:{{ .Values.global.environment.redis_port}}/0
+          - name: POSTGRES_USER
+            value: {{ .Values.global.environment.postgres_user | quote}}
+          - name: POSTGRES_PASSWORD
+            value: {{ .Values.global.environment.postgres_password | quote}}
+          - name: POSTGRES_HOST
+            value: {{ .Values.global.environment.postgres_host | quote}}
+          - name: POSTGRES_PORT
+            value: {{ .Values.global.environment.postgres_port | quote}}
+          - name: POSTGRES_DB
+            value: {{ .Values.global.environment.postgres_db | quote}}
+          - name: S3_URL
+            value: {{ .Values.global.environment.s3_url | quote}}
+          - name: S3_ACCESS
+            value: {{ .Values.global.environment.s3_access | quote}}
+          - name: S3_SECRET
+            value: {{ .Values.global.environment.s3_secret | quote}}
+          - name: S3_BUCKET
+            value: {{ .Values.global.environment.s3_bucket | quote}}
+          image: "{{ .Values.coffee_worker.image.repository }}:{{ .Values.coffee_worker.image.tag }}"
+          name: coffee-worker
+          {{- if .Values.coffee_worker.resources }}
+          resources: {{- toYaml .Values.coffee_worker.resources | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy}}
+      restartPolicy: Always

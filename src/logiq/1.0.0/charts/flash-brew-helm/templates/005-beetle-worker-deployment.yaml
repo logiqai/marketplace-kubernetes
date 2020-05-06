@@ -1,0 +1,65 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: beetle-worker-deployment
+  name: beetle-worker
+spec:
+  replicas: {{ .Values.beetle_worker.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: beetle-worker
+  template:
+    metadata:
+      labels:
+        app: beetle-worker
+    spec:
+      {{ if .Values.useSecret }}
+      imagePullSecrets:
+        - name: {{ required "pullSecretName is required" .Values.pullSecretName }}
+      {{ end }}
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --head --fail http://pithos:{{ .Values.pithos.apiContainerPort }}/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      containers:
+      - image: "{{ .Values.beetle_worker.image.repository }}:{{ .Values.beetle_worker.image.tag }}"
+        ports:
+        - containerPort: {{ .Values.beetle_worker.containerPort }}
+        {{- if .Values.beetle_worker.resources }}
+        resources: {{- toYaml .Values.beetle_worker.resources | nindent 12 }}
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.pullPolicy}}
+        name: beetle-worker
+        env:
+          - name: IS_COORDINATOR
+            value: "false"
+          - name: REDIS_HOST
+            value: {{.Values.global.environment.redis_host}}
+          - name: REDIS_URL
+            value: redis://{{.Values.global.environment.redis_host}}:{{ .Values.global.environment.redis_port}}/0
+          - name: POSTGRES_USER
+            value: {{ .Values.global.environment.postgres_user | quote}}
+          - name: POSTGRES_PASSWORD
+            value: {{ .Values.global.environment.postgres_password | quote}}
+          - name: POSTGRES_HOST
+            value: {{ .Values.global.environment.postgres_host | quote}}
+          - name: POSTGRES_DB
+            value: {{ .Values.global.environment.postgres_db | quote}}
+          - name: S3_URL
+            value: {{ .Values.global.environment.s3_url | quote}}
+          - name: S3_ACCESS
+            value: {{ .Values.global.environment.s3_access | quote}}
+          - name: S3_SECRET
+            value: {{ .Values.global.environment.s3_secret | quote}}
+          - name: S3_BUCKET
+            value: {{ .Values.global.environment.s3_bucket | quote}}
+      restartPolicy: Always

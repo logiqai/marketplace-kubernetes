@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: coffee-server-deployment
+  name: coffee-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: coffee-server
+  template:
+    metadata:
+      labels:
+        app: coffee-server
+    spec:
+      {{ if .Values.useSecret }}
+      imagePullSecrets:
+        - name: {{ required "pullSecretName is required" .Values.pullSecretName }}
+      {{ end }}
+      initContainers:
+      - name: check-postgres
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 
+          'until pg_isready -h {{ .Values.global.environment.postgres_host }} -p {{ .Values.global.environment.postgres_port}} -d postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}};
+          do echo waiting for database; sleep 2; done;']
+      - command:
+        - sh
+        - -c
+        - until redis-cli -h {{ .Values.global.environment.redis_host }} ping; do echo "waiting for {{ .Values.global.environment.redis_host }}"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-redis
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://pithos:{{ .Values.pithos.apiContainerPort }}/ready); do echo "waiting for pithos"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-pithos
+      - command:
+        - sh
+        - -c
+        - until $(curl --output /dev/null --silent --fail http://beetle-coordinator:{{ .Values.beetle_coordinator.containerPort}}); do echo "waiting for beetle coordinator"; sleep 2;
+          done;
+        image: logiqai/toolbox
+        imagePullPolicy: IfNotPresent
+        name: check-beetle
+      containers:
+        - env:
+          - name: PYTHONUNBUFFERED
+            value: "0"
+          - name: COOKIE_SECRET
+            value: d84c0edd-ab5e-4664-b0ee-2cd15a9ae5f0 
+          - name: DATABASE_URL
+            value: postgresql://{{.Values.global.environment.postgres_user}}:{{.Values.global.environment.postgres_password}}@{{.Values.global.environment.postgres_host}}:{{.Values.global.environment.postgres_port}}/{{.Values.global.environment.postgres_db}}
+          - name: LOG_LEVEL
+            value: WARN
+          - name: REDIS_HOST
+            value: {{.Values.global.environment.redis_host}}
+          - name: REDIS_URL
+            value: redis://{{.Values.global.environment.redis_host}}:{{ .Values.global.environment.redis_port}}/0
+          - name: POSTGRES_USER
+            value: {{ .Values.global.environment.postgres_user | quote}}
+          - name: POSTGRES_PASSWORD
+            value: {{ .Values.global.environment.postgres_password | quote}}
+          - name: POSTGRES_HOST
+            value: {{ .Values.global.environment.postgres_host | quote}}
+          - name: POSTGRES_PORT
+            value: {{ .Values.global.environment.postgres_port | quote}}
+          - name: POSTGRES_DB
+            value: {{ .Values.global.environment.postgres_db | quote}}
+          - name: S3_URL
+            value: {{ .Values.global.environment.s3_url | quote}}
+          - name: S3_ACCESS
+            value: {{ .Values.global.environment.s3_access | quote}}
+          - name: S3_SECRET
+            value: {{ .Values.global.environment.s3_secret | quote}}
+          - name: S3_BUCKET
+            value: {{ .Values.global.environment.s3_bucket | quote}}
+          - name: WEB_WORKERS
+            value: "{{ .Values.coffee_worker.replicas }}"
+          - name: CONFIGURE_LOGIQ_DS
+            value: "true"
+          - name:  COFFEE_UI_SERVER_URL
+            value: http://{{.Values.coffee.name}}:{{.Values.coffee.port}}
+          - name: CONFIGURE_LOGIQEVENTS_DS
+            value: "false"
+          image: "{{ .Values.coffee.image.repository }}:{{ .Values.coffee.image.tag }}"
+          name: coffee
+          command: ["/app/flash-brew/setup_coffee.sh"]
+          ports:
+            - containerPort: {{ .Values.coffee.targetPort }}
+          readinessProbe:
+            httpGet:
+              port:  {{ .Values.coffee.targetPort }}
+              path: /static/js/jquery.min.js
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 4
+            successThreshold: 2
+            failureThreshold: 10
+          {{- if .Values.coffee.resources }}
+          resources: {{- toYaml .Values.coffee.resources | nindent 12 }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy}}    
+      restartPolicy: Always

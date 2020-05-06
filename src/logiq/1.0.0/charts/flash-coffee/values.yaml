@@ -1,0 +1,89 @@
+# Default values for flash-beetle-helm.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+replicaCount: 1
+useSecret: false
+pullSecretName:
+
+pithos:
+  apiContainerPort: 6002
+
+beetle_coordinator:
+  containerPort: 8080
+
+beetle_worker:
+  containerPort: 8081
+  targetPort: 8081
+  name: beetle-worker
+
+coffee:
+  name: coffee
+  port: 80
+  targetPort: 5000
+  image: 
+    repository: logiqai/flash-brew-coffee
+    tag: brew.1.2.0
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+
+coffee_worker:
+  image:
+    repository: logiqai/flash-brew-coffee
+    tag: brew.1.2.0
+  replicaCount: 3
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+
+service:
+  type: ClusterIP
+  port: 80
+
+image:
+  pullPolicy: Always
+
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  path: /
+  tls: []
+  hosts: ["a", "b", "192.168.99.100"]
+
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+
+global:
+  environment:
+    redis_opts: true
+    redis_host: "redis-master"
+    redis_port: "6379"
+    postgres_host: "postgres"
+    postgres_port: "5432"
+    postgres_user: "postgres"
+    postgres_password: "postgres"
+    postgres_db: "postgres"
+    s3_url: "http://s3-gateway:9000"
+    s3_access: "logiq_access"
+    s3_secret: "logiq_secret"
+    s3_bucket: "logiq"
